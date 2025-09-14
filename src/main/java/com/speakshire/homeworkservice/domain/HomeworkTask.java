@@ -1,19 +1,18 @@
 package com.speakshire.homeworkservice.domain;
 
 import jakarta.persistence.*;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Getter @Setter
 @Entity
@@ -53,7 +52,7 @@ public class HomeworkTask {
 
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(name = "content_ref", columnDefinition = "jsonb", nullable = false)
-  private Map<String, Object> contentRef;
+  private Map<String, Object> contentRef = Map.of();
 
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
@@ -79,4 +78,17 @@ public class HomeworkTask {
   @UpdateTimestamp
   @Column(name = "updated_at", nullable = false)
   private OffsetDateTime updatedAt;
+
+  // NEW: cascade vocab rows from task
+  @OneToMany(mappedBy = "task", cascade = CascadeType.ALL, orphanRemoval = true)
+  @ToString.Exclude @EqualsAndHashCode.Exclude
+  private List<HomeworkTaskVocabWord> vocabWords = new ArrayList<>();
+
+  public void addVocabWord(UUID wordId) {
+    var row = new HomeworkTaskVocabWord();
+    row.setTask(this);
+    row.setWordId(wordId);
+    row.setLearned(false);
+    vocabWords.add(row);
+  }
 }

@@ -6,7 +6,6 @@ import com.speakshire.homeworkservice.dto.CreateAssignmentDto;
 import com.speakshire.homeworkservice.exception.BadRequestException;
 import com.speakshire.homeworkservice.mapper.AssignmentMapper;
 import com.speakshire.homeworkservice.repository.HomeworkAssignmentRepository;
-import com.speakshire.homeworkservice.repository.HomeworkTaskVocabWordRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -20,7 +19,6 @@ import java.util.*;
 public class HomeworkService {
 
   private final HomeworkAssignmentRepository assignmentRepo;
-  private final HomeworkTaskVocabWordRepository vocabRepo;
 
   @Transactional
   public AssignmentDto createAssignment(UUID teacherId, CreateAssignmentDto dto) {
@@ -35,39 +33,32 @@ public class HomeworkService {
       if (existing.isPresent()) return AssignmentMapper.toDto(existing.get());
     }
 
-    var assignment = new HomeworkAssignment();
-    assignment.setTeacherId(teacherId);
-    assignment.setStudentId(dto.studentId());
-    assignment.setTitle(dto.title());
-    assignment.setInstructions(dto.instructions());
-    assignment.setDueAt(dto.dueAt());
-    assignment.setLessonId(dto.lessonId());
-    assignment.setIdempotencyKey(dto.idempotencyKey());
+    var assignment = buildHomeworkAssignment(teacherId, dto);
 
     int ordinal = 1;
     for (var tDto : dto.tasks()) {
-      var homeworkTask = new HomeworkTask();
-      homeworkTask.setOrdinal(Optional.ofNullable(tDto.ordinal()).orElse(ordinal++));
-      homeworkTask.setType(tDto.type());
-      homeworkTask.setTitle(tDto.title());
-      homeworkTask.setInstructions(tDto.instructions());
-      homeworkTask.setSourceKind(tDto.sourceKind());
-      homeworkTask.setContentRef(tDto.contentRef());
-      homeworkTask.setStatus(HomeworkTaskStatus.NOT_STARTED);
-      homeworkTask.setProgressPct(0);
-      assignment.addTask(homeworkTask);
+      var task = new HomeworkTask();
+      // Let Hibernate generate id
+      task.setOrdinal(Optional.ofNullable(tDto.ordinal()).orElse(ordinal++));
+      task.setType(tDto.type());
+      task.setTitle(tDto.title());
+      task.setInstructions(tDto.instructions());
+      task.setSourceKind(tDto.sourceKind());
+      task.setContentRef(Optional.ofNullable(tDto.contentRef()).orElse(Map.of()));
+      task.setStatus(HomeworkTaskStatus.NOT_STARTED);
+      task.setProgressPct(0);
 
-      if (homeworkTask.getType() == HomeworkTaskType.VOCAB && tDto.vocabWordIds() != null) {
-        for (var wid : tDto.vocabWordIds()) {
-          var row = new HomeworkTaskVocabWord();
-          row.setTaskId(homeworkTask.getId()); // t.getId() is null until flush; persist after save below (handled by JPA via PK gen on flush)
-          row.setWordId(wid);
-          vocabRepo.save(row); // Will persist after ids are available; alternative is to batch after save(a)
+      assignment.addTask(task);
+
+      // If VOCAB task, attach vocab rows to the task (cascade persists them)
+      if (task.getType() == HomeworkTaskType.VOCAB && tDto.vocabWordIds() != null) {
+        for (UUID wid : tDto.vocabWordIds()) {
+          task.addVocabWord(wid);
         }
       }
     }
 
-    var saved = assignmentRepo.save(assignment);
+    var saved = assignmentRepo.save(assignment); // cascades tasks & vocab words
     return AssignmentMapper.toDto(saved);
   }
 
@@ -87,5 +78,17 @@ public class HomeworkService {
 
   public void deleteAssignment(UUID assignmentId) {
     assignmentRepo.deleteById(assignmentId);
+  }
+
+  private HomeworkAssignment buildHomeworkAssignment(UUID teacherId, CreateAssignmentDto dto) {
+    var assignment = new HomeworkAssignment();
+    assignment.setTeacherId(teacherId);
+    assignment.setStudentId(dto.studentId());
+    assignment.setTitle(dto.title());
+    assignment.setInstructions(dto.instructions());
+    assignment.setDueAt(dto.dueAt());
+    assignment.setLessonId(dto.lessonId());
+    assignment.setIdempotencyKey(dto.idempotencyKey());
+    return assignment;
   }
 }
