@@ -115,3 +115,38 @@ A simple Dockerfile is provided. Example build and run:
 
 ## License
 Proprietary — internal service for speakshire.com (update as needed).
+
+
+
+## Student → Homework list: filtering, sorting, and counts
+
+New parameters on GET /api/homeworks/student/{studentId}:
+- status=active|notFinished|completed|all (default active)
+- from,to=ISO8601 timestamps (optional). When absent, default window is the last 7 days ending now.
+- includeOverdue=true|false (default true)
+- hideCompleted=true|false (default true when status=active)
+- sort=assigned_desc|assigned_asc|due_asc|due_desc (default assigned_desc)
+- view=summary|full (default summary). When view is absent or set to full, legacy behavior is preserved and a Page<AssignmentDto> (full payload) is returned.
+- page,size (existing Spring Data pagination)
+
+Summary view returns lightweight items only (no task bodies):
+- id, title, createdAt, dueAt, totalTasks, completedTasks, progressPct, completed, overdue
+
+Status semantics:
+- active → not finished within [from,to] + ALL overdue (outside range allowed if includeOverdue=true)
+- notFinished → all not finished (ignore [from,to])
+- completed → completed within [from,to]
+- all → any within [from,to]
+
+Sorting:
+- assigned_desc/assigned_asc → createdAt desc/asc
+- due_asc/due_desc → dueAt asc/desc
+
+Examples:
+- GET /api/homeworks/student/{id}?view=summary  // default active, last 7d, include overdue, hide completed
+- GET /api/homeworks/student/{id}?view=summary&status=completed&from=2025-10-01T00:00:00Z&to=2025-10-08T00:00:00Z
+- GET /api/homeworks/student/{id}?view=summary&status=active&includeOverdue=false&sort=due_asc
+
+Counts endpoint:
+- GET /api/homeworks/student/{studentId}/counts?from=&to=&includeOverdue=true
+- Returns JSON: { notFinished, completed, overdue, active, all } computed with the same rules as above.
