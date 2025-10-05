@@ -18,7 +18,7 @@ public interface HomeworkAssignmentRepository extends JpaRepository<HomeworkAssi
           UUID teacherId, UUID studentId, String idempotencyKey);
 
   // Student-focused projections
-  @Query("select a.id as id, a.title as title, a.createdAt as createdAt, a.dueAt as dueAt, " +
+  @Query("select a.id as id, a.title as title, a.studentId as studentId, a.createdAt as createdAt, a.dueAt as dueAt, " +
           "count(t.id) as totalTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +
@@ -27,7 +27,7 @@ public interface HomeworkAssignmentRepository extends JpaRepository<HomeworkAssi
           "where a.studentId = :studentId group by a.id")
   Page<AssignmentListItemProjection> listItemsBase(@Param("studentId") UUID studentId, Pageable pageable);
 
-  @Query("select a.id as id, a.title as title, a.createdAt as createdAt, a.dueAt as dueAt, " +
+  @Query("select a.id as id, a.title as title, a.studentId as studentId, a.createdAt as createdAt, a.dueAt as dueAt, " +
           "count(t.id) as totalTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +
@@ -35,12 +35,12 @@ public interface HomeworkAssignmentRepository extends JpaRepository<HomeworkAssi
           "from HomeworkAssignment a left join a.tasks t " +
           "where a.studentId = :studentId and a.createdAt between :from and :to group by a.id")
   Page<AssignmentListItemProjection> listItemsWithin(@Param("studentId") UUID studentId,
-                                                    @Param("from") OffsetDateTime from,
-                                                    @Param("to") OffsetDateTime to,
-                                                    Pageable pageable);
+                                                   @Param("from") OffsetDateTime from,
+                                                   @Param("to") OffsetDateTime to,
+                                                   Pageable pageable);
 
   // Teacher-focused projections (optionally filtered by student)
-  @Query("select a.id as id, a.title as title, a.createdAt as createdAt, a.dueAt as dueAt, " +
+  @Query("select a.id as id, a.title as title, a.studentId as studentId, a.createdAt as createdAt, a.dueAt as dueAt, " +
           "count(t.id) as totalTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +
@@ -49,7 +49,7 @@ public interface HomeworkAssignmentRepository extends JpaRepository<HomeworkAssi
           "where a.teacherId = :teacherId group by a.id")
   Page<AssignmentListItemProjection> listItemsBaseForTeacher(@Param("teacherId") UUID teacherId, Pageable pageable);
 
-  @Query("select a.id as id, a.title as title, a.createdAt as createdAt, a.dueAt as dueAt, " +
+  @Query("select a.id as id, a.title as title, a.studentId as studentId, a.createdAt as createdAt, a.dueAt as dueAt, " +
           "count(t.id) as totalTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +
@@ -61,7 +61,7 @@ public interface HomeworkAssignmentRepository extends JpaRepository<HomeworkAssi
                                                               @Param("to") OffsetDateTime to,
                                                               Pageable pageable);
 
-  @Query("select a.id as id, a.title as title, a.createdAt as createdAt, a.dueAt as dueAt, " +
+  @Query("select a.id as id, a.title as title, a.studentId as studentId, a.createdAt as createdAt, a.dueAt as dueAt, " +
           "count(t.id) as totalTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +
@@ -72,7 +72,7 @@ public interface HomeworkAssignmentRepository extends JpaRepository<HomeworkAssi
                                                                       @Param("studentId") UUID studentId,
                                                                       Pageable pageable);
 
-  @Query("select a.id as id, a.title as title, a.createdAt as createdAt, a.dueAt as dueAt, " +
+  @Query("select a.id as id, a.title as title, a.studentId as studentId, a.createdAt as createdAt, a.dueAt as dueAt, " +
           "count(t.id) as totalTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks, " +
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +

@@ -6,6 +6,7 @@ import java.util.UUID;
 public record AssignmentListItemDto(
         UUID id,
         String title,
+        UUID studentId,
         OffsetDateTime createdAt,
         OffsetDateTime dueAt,
         int totalTasks,

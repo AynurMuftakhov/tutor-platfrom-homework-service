@@ -17,6 +17,7 @@ public class AssignmentListItemMapper {
         return new AssignmentListItemDto(
                 p.getId(),
                 p.getTitle(),
+                p.getStudentId(),
                 p.getCreatedAt(),
                 p.getDueAt(),
                 total,
