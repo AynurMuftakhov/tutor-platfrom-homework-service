@@ -4,11 +4,14 @@ import com.speakshire.homeworkservice.domain.*;
 import com.speakshire.homeworkservice.dto.AssignmentDto;
 import com.speakshire.homeworkservice.dto.CreateAssignmentDto;
 import com.speakshire.homeworkservice.dto.AssignmentListItemDto;
+import com.speakshire.homeworkservice.dto.TaskBriefDto;
 import com.speakshire.homeworkservice.exception.BadRequestException;
 import com.speakshire.homeworkservice.mapper.AssignmentListItemMapper;
 import com.speakshire.homeworkservice.mapper.AssignmentMapper;
 import com.speakshire.homeworkservice.repository.HomeworkAssignmentRepository;
+import com.speakshire.homeworkservice.repository.HomeworkTaskRepository;
 import com.speakshire.homeworkservice.repository.projection.AssignmentListItemProjection;
+import com.speakshire.homeworkservice.repository.projection.TaskBriefProjection;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
@@ -25,6 +28,7 @@ import java.util.*;
 public class HomeworkService {
 
   private final HomeworkAssignmentRepository assignmentRepo;
+  private final HomeworkTaskRepository taskRepo;
 
   @Transactional
   public AssignmentDto createAssignment(UUID teacherId, CreateAssignmentDto dto) {
@@ -87,12 +91,18 @@ public class HomeworkService {
             sort,
             pageable,
             (statusVal, range, sorted) -> {
-              boolean useBase = "notFinished".equals(statusVal) || "active".equals(statusVal);
+              boolean useBase = "notFinished".equalsIgnoreCase(statusVal) || "active".equalsIgnoreCase(statusVal);
               if (useBase) {
                 return studentId
                         .map(sid -> assignmentRepo.listItemsBaseForTeacherAndStudent(teacherId, sid, sorted))
                         .orElseGet(() -> assignmentRepo.listItemsBaseForTeacher(teacherId, sorted));
               } else {
+                // If no date filters provided, fall back to base (no date filtering)
+                if (range.from() == null && range.to() == null) {
+                  return studentId
+                          .map(sid -> assignmentRepo.listItemsBaseForTeacherAndStudent(teacherId, sid, sorted))
+                          .orElseGet(() -> assignmentRepo.listItemsBaseForTeacher(teacherId, sorted));
+                }
                 return studentId
                         .map(sid -> assignmentRepo.listItemsWithinForTeacherAndStudent(teacherId, sid, range.from(), range.to(), sorted))
                         .orElseGet(() -> assignmentRepo.listItemsWithinForTeacher(teacherId, range.from(), range.to(), sorted));
@@ -119,6 +129,7 @@ public class HomeworkService {
                                                             boolean includeOverdue,
                                                             boolean hideCompleted,
                                                             String sort,
+                                                            String type,
                                                             Pageable pageable) {
     return listAssignmentsCommon(
             status,
@@ -129,10 +140,30 @@ public class HomeworkService {
             sort,
             pageable,
             (statusVal, range, sorted) -> {
-              if ("notFinished".equals(statusVal) || "active".equals(statusVal)) {
-                return assignmentRepo.listItemsBase(studentId, sorted);
+              HomeworkTaskType typeEnum = null;
+              if (type != null && !type.isBlank()) {
+                try {
+                  typeEnum = HomeworkTaskType.valueOf(type.trim().toUpperCase());
+                } catch (IllegalArgumentException ex) {
+                  throw new BadRequestException("Invalid task type: " + type);
+                }
               }
-              return assignmentRepo.listItemsWithin(studentId, range.from(), range.to(), sorted);
+              boolean base = "notFinished".equalsIgnoreCase(statusVal) || "active".equalsIgnoreCase(statusVal);
+              if (base) {
+                return (typeEnum == null)
+                        ? assignmentRepo.listItemsBase(studentId, sorted)
+                        : assignmentRepo.listItemsBaseByType(studentId, typeEnum, sorted);
+              } else {
+                // If no date filters provided, fall back to base (no date filtering)
+                if (range.from() == null && range.to() == null) {
+                  return (typeEnum == null)
+                          ? assignmentRepo.listItemsBase(studentId, sorted)
+                          : assignmentRepo.listItemsBaseByType(studentId, typeEnum, sorted);
+                }
+                return (typeEnum == null)
+                        ? assignmentRepo.listItemsWithin(studentId, range.from(), range.to(), sorted)
+                        : assignmentRepo.listItemsWithinByType(studentId, range.from(), range.to(), typeEnum, sorted);
+              }
             }
     );
   }
@@ -148,7 +179,7 @@ public class HomeworkService {
                                                             Pageable pageable) {
     String fromStr = from == null ? null : from.toString();
     String toStr = to == null ? null : to.toString();
-    return listStudentAssignments(studentId, status, fromStr, toStr, includeOverdue, hideCompleted, sort, pageable);
+    return listStudentAssignments(studentId, status, fromStr, toStr, includeOverdue, hideCompleted, sort, null, pageable);
   }
 
   @FunctionalInterface
@@ -167,7 +198,7 @@ public class HomeworkService {
     OffsetDateTime from = parseFromDateOrDateTime(fromDate, false);
     OffsetDateTime to = parseFromDateOrDateTime(toDate, true);
 
-    String statusVal = (status == null) ? "active" : status;
+    String statusVal = (status == null) ? "active" : status.trim();
     String sortVal = (sort == null) ? "assigned_desc" : sort;
 
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -182,7 +213,24 @@ public class HomeworkService {
             .filter(item -> matchesStatus(item, statusVal, range, includeOverdue, hideCompleted))
             .toList();
 
-    return new PageImpl<>(filtered, sorted, filtered.size());
+    if (filtered.isEmpty()) {
+      return new PageImpl<>(filtered, sorted, 0);
+    }
+
+    // Attach brief tasks (type, title, sourceKind) for each assignment
+    List<UUID> ids = filtered.stream().map(AssignmentListItemDto::id).toList();
+    List<TaskBriefProjection> rows = taskRepo.findTaskBriefsByAssignmentIds(ids);
+    Map<UUID, List<TaskBriefDto>> byAssignment = new LinkedHashMap<>();
+    for (TaskBriefProjection r : rows) {
+      byAssignment.computeIfAbsent(r.getAssignmentId(), k -> new ArrayList<>())
+              .add(new TaskBriefDto(r.getType(), r.getTitle(), r.getSourceKind()));
+    }
+
+    var withTasks = filtered.stream()
+            .map(item -> AssignmentListItemMapper.withTasks(item, byAssignment.getOrDefault(item.id(), List.of())))
+            .toList();
+
+    return new PageImpl<>(withTasks, sorted, withTasks.size());
   }
 
   private Pageable buildSortedPageable(Pageable pageable, String sortVal) {
@@ -196,19 +244,9 @@ public class HomeworkService {
   }
 
   private DateRange resolveDateRange(OffsetDateTime from, OffsetDateTime to, OffsetDateTime now) {
-    OffsetDateTime fromVal = from;
-    OffsetDateTime toVal = to;
-    if (fromVal == null || toVal == null) {
-      if (fromVal == null && toVal == null) {
-        toVal = now;
-        fromVal = now.minusDays(7);
-      } else if (fromVal == null) {
-        fromVal = toVal.minusDays(7);
-      } else {
-        toVal = fromVal.plusDays(7);
-      }
-    }
-    return new DateRange(fromVal, toVal);
+    // New behavior: do not infer dates. Leave nulls as open-ended bounds.
+    // If both from and to are null, it means no date filtering.
+    return new DateRange(from, to);
   }
 
   private boolean matchesStatus(AssignmentListItemDto item,
@@ -218,9 +256,12 @@ public class HomeworkService {
                                        boolean hideCompleted) {
     boolean isCompleted = item.completed();
     boolean isOverdue = item.overdue();
-    boolean inRange = !(item.createdAt().isBefore(range.from()) || item.createdAt().isAfter(range.to()));
-    switch (statusVal) {
-      case "notFinished":
+    boolean inRange = true;
+    if (range.from() != null && item.createdAt().isBefore(range.from())) inRange = false;
+    if (range.to() != null && item.createdAt().isAfter(range.to())) inRange = false;
+    String normalized = (statusVal == null ? "active" : statusVal.trim().toLowerCase());
+    switch (normalized) {
+      case "notfinished":
         return !isCompleted;
       case "completed":
         return inRange && isCompleted;
@@ -245,20 +286,13 @@ public class HomeworkService {
     OffsetDateTime from = parseFromDateOrDateTime(fromDate, false);
     OffsetDateTime to = parseFromDateOrDateTime(toDate, true);
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-    if (from == null || to == null) {
-      if (from == null && to == null) {
-        to = now;
-        from = now.minusDays(7);
-      } else if (from == null) {
-        from = to.minusDays(7);
-      } else {
-        to = from.plusDays(7);
-      }
-    }
+    // New behavior: do not infer dates. If both null, treat as no date filtering for ranged queries.
 
     // Load base and ranged projections
     var basePage = assignmentRepo.listItemsBase(studentId, Pageable.unpaged());
-    var withinPage = assignmentRepo.listItemsWithin(studentId, from, to, Pageable.unpaged());
+    var withinPage = (from == null && to == null)
+            ? assignmentRepo.listItemsBase(studentId, Pageable.unpaged())
+            : assignmentRepo.listItemsWithin(studentId, from, to, Pageable.unpaged());
 
     var allItems = basePage.map(p -> AssignmentListItemMapper.fromProjection(p, now)).getContent();
     var rangedItems = withinPage.map(p -> AssignmentListItemMapper.fromProjection(p, now)).getContent();

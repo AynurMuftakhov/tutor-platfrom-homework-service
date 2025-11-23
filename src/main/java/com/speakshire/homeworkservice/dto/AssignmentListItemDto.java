@@ -1,6 +1,7 @@
 package com.speakshire.homeworkservice.dto;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public record AssignmentListItemDto(
@@ -14,5 +15,6 @@ public record AssignmentListItemDto(
         int inProgressTasks,
         int progressPct,
         boolean completed,
-        boolean overdue
+        boolean overdue,
+        List<TaskBriefDto> tasks
 ) {}

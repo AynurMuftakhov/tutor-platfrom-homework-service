@@ -1,9 +1,11 @@
 package com.speakshire.homeworkservice.mapper;
 
 import com.speakshire.homeworkservice.dto.AssignmentListItemDto;
+import com.speakshire.homeworkservice.dto.TaskBriefDto;
 import com.speakshire.homeworkservice.repository.projection.AssignmentListItemProjection;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 public class AssignmentListItemMapper {
 
@@ -25,7 +27,25 @@ public class AssignmentListItemMapper {
                 inProgressTasks,
                 progress,
                 completed,
-                overdue
+                overdue,
+                List.of()
+        );
+    }
+
+    public static AssignmentListItemDto withTasks(AssignmentListItemDto item, List<TaskBriefDto> tasks) {
+        return new AssignmentListItemDto(
+                item.id(),
+                item.title(),
+                item.studentId(),
+                item.createdAt(),
+                item.dueAt(),
+                item.totalTasks(),
+                item.completedTasks(),
+                item.inProgressTasks(),
+                item.progressPct(),
+                item.completed(),
+                item.overdue(),
+                tasks
         );
     }
 }

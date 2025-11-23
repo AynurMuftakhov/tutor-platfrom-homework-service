@@ -39,12 +39,13 @@ public class HomeworkController {
                                                    @RequestParam(required = false) Boolean includeOverdue,
                                                    @RequestParam(required = false) Boolean hideCompleted,
                                                    @RequestParam(required = false) String sort,
+                                                   @RequestParam(required = false) String type,
                                                    Pageable pageable) {
     boolean includeOverdueVal = includeOverdue == null || includeOverdue;
-    String statusVal = (status == null || status.isBlank()) ? "active" : status;
+    String statusVal = (status == null || status.isBlank()) ? "active" : status.trim();
     Boolean hideCompletedVal = hideCompleted;
     if (hideCompletedVal == null) {
-      hideCompletedVal = "active".equals(statusVal);
+      hideCompletedVal = "active".equalsIgnoreCase(statusVal);
     }
 
     return homeworkService.listStudentAssignments(
@@ -55,6 +56,7 @@ public class HomeworkController {
             includeOverdueVal,
             hideCompletedVal,
             sort,
+            type,
             pageable
     );
   }
@@ -90,10 +92,10 @@ public class HomeworkController {
                                                       @RequestParam(required = false) String sort,
                                                       Pageable pageable) {
     boolean includeOverdueVal = includeOverdue == null || includeOverdue;
-    String statusVal = (status == null || status.isBlank()) ? "active" : status;
+    String statusVal = (status == null || status.isBlank()) ? "active" : status.trim();
     Boolean hideCompletedVal = hideCompleted;
     if (hideCompletedVal == null) {
-      hideCompletedVal = "active".equals(statusVal);
+      hideCompletedVal = "active".equalsIgnoreCase(statusVal);
     }
 
     return homeworkService.listTutorAssignments(

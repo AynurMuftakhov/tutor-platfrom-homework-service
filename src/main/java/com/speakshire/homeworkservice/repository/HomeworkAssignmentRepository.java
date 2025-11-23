@@ -33,10 +33,34 @@ public interface HomeworkAssignmentRepository extends JpaRepository<HomeworkAssi
           "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +
           "coalesce(avg(t.progressPct),0) as progressPct " +
           "from HomeworkAssignment a left join a.tasks t " +
+          "where a.studentId = :studentId group by a.id having sum(case when t.type = :type then 1 else 0 end) > 0")
+  Page<AssignmentListItemProjection> listItemsBaseByType(@Param("studentId") UUID studentId,
+                                                         @Param("type") com.speakshire.homeworkservice.domain.HomeworkTaskType type,
+                                                         Pageable pageable);
+
+  @Query("select a.id as id, a.title as title, a.studentId as studentId, a.createdAt as createdAt, a.dueAt as dueAt, " +
+          "count(t.id) as totalTasks, " +
+          "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks, " +
+          "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +
+          "coalesce(avg(t.progressPct),0) as progressPct " +
+          "from HomeworkAssignment a left join a.tasks t " +
           "where a.studentId = :studentId and a.createdAt between :from and :to group by a.id")
   Page<AssignmentListItemProjection> listItemsWithin(@Param("studentId") UUID studentId,
                                                    @Param("from") OffsetDateTime from,
                                                    @Param("to") OffsetDateTime to,
+                                                   Pageable pageable);
+
+  @Query("select a.id as id, a.title as title, a.studentId as studentId, a.createdAt as createdAt, a.dueAt as dueAt, " +
+          "count(t.id) as totalTasks, " +
+          "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks, " +
+          "sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks, " +
+          "coalesce(avg(t.progressPct),0) as progressPct " +
+          "from HomeworkAssignment a left join a.tasks t " +
+          "where a.studentId = :studentId and a.createdAt between :from and :to group by a.id having sum(case when t.type = :type then 1 else 0 end) > 0")
+  Page<AssignmentListItemProjection> listItemsWithinByType(@Param("studentId") UUID studentId,
+                                                   @Param("from") OffsetDateTime from,
+                                                   @Param("to") OffsetDateTime to,
+                                                   @Param("type") com.speakshire.homeworkservice.domain.HomeworkTaskType type,
                                                    Pageable pageable);
 
   // Teacher-focused projections (optionally filtered by student)
