@@ -4,8 +4,11 @@ import com.speakshire.homeworkservice.domain.*;
 import com.speakshire.homeworkservice.dto.AssignmentDto;
 import com.speakshire.homeworkservice.dto.CreateAssignmentDto;
 import com.speakshire.homeworkservice.dto.AssignmentListItemDto;
+import com.speakshire.homeworkservice.dto.ReassignAssignmentDto;
 import com.speakshire.homeworkservice.dto.TaskBriefDto;
 import com.speakshire.homeworkservice.exception.BadRequestException;
+import com.speakshire.homeworkservice.exception.ForbiddenException;
+import com.speakshire.homeworkservice.exception.NotFoundException;
 import com.speakshire.homeworkservice.mapper.AssignmentListItemMapper;
 import com.speakshire.homeworkservice.mapper.AssignmentMapper;
 import com.speakshire.homeworkservice.repository.HomeworkAssignmentRepository;
@@ -32,44 +35,90 @@ public class HomeworkService {
 
   @Transactional
   public AssignmentDto createAssignment(UUID teacherId, CreateAssignmentDto dto) {
+    var targets = resolveTargetStudentIds(dto.studentId(), dto.studentIds());
+    var created = createAssignmentsForStudents(teacherId, dto, targets);
+    return created.get(0);
+  }
+
+  @Transactional
+  public List<AssignmentDto> createAssignmentsForStudents(UUID teacherId, CreateAssignmentDto dto, List<UUID> studentIds) {
     if (dto.tasks() == null || dto.tasks().isEmpty()) {
       throw new BadRequestException("At least one task is required");
     }
 
-    // Idempotency
-    if (dto.idempotencyKey() != null && !dto.idempotencyKey().isBlank()) {
-      var existing = assignmentRepo.findByTeacherIdAndStudentIdAndIdempotencyKey(
-              teacherId, dto.studentId(), dto.idempotencyKey());
-      if (existing.isPresent()) return AssignmentMapper.toDto(existing.get());
+    if (studentIds == null || studentIds.isEmpty()) {
+      throw new BadRequestException("At least one student is required");
     }
 
-    var assignment = buildHomeworkAssignment(teacherId, dto);
+    var result = new ArrayList<AssignmentDto>();
 
-    int ordinal = 1;
-    for (var tDto : dto.tasks()) {
-      var task = new HomeworkTask();
-      // Let Hibernate generate id
-      task.setOrdinal(Optional.ofNullable(tDto.ordinal()).orElse(ordinal++));
-      task.setType(tDto.type());
-      task.setTitle(tDto.title());
-      task.setInstructions(tDto.instructions());
-      task.setSourceKind(tDto.sourceKind());
-      task.setContentRef(Optional.ofNullable(tDto.contentRef()).orElse(Map.of()));
-      task.setStatus(HomeworkTaskStatus.NOT_STARTED);
-      task.setProgressPct(0);
-
-      assignment.addTask(task);
-
-      // If VOCAB task, attach vocab rows to the task (cascade persists them)
-      if (task.getType() == HomeworkTaskType.VOCAB && tDto.vocabWordIds() != null) {
-        for (UUID wid : tDto.vocabWordIds()) {
-          task.addVocabWord(wid);
+    for (UUID studentId : studentIds) {
+      // Idempotency
+      if (dto.idempotencyKey() != null && !dto.idempotencyKey().isBlank()) {
+        var existing = assignmentRepo.findByTeacherIdAndStudentIdAndIdempotencyKey(
+                teacherId, studentId, dto.idempotencyKey());
+        if (existing.isPresent()) {
+          result.add(AssignmentMapper.toDto(existing.get()));
+          continue;
         }
       }
+
+      var assignment = buildHomeworkAssignment(teacherId, studentId, dto);
+
+      int ordinal = 1;
+      for (var tDto : dto.tasks()) {
+        var task = new HomeworkTask();
+        // Let Hibernate generate id
+        task.setOrdinal(Optional.ofNullable(tDto.ordinal()).orElse(ordinal++));
+        task.setType(tDto.type());
+        task.setTitle(tDto.title());
+        task.setInstructions(tDto.instructions());
+        task.setSourceKind(tDto.sourceKind());
+        task.setContentRef(Optional.ofNullable(tDto.contentRef()).orElse(Map.of()));
+        task.setStatus(HomeworkTaskStatus.NOT_STARTED);
+        task.setProgressPct(0);
+
+        assignment.addTask(task);
+
+        // If VOCAB task, attach vocab rows to the task (cascade persists them)
+        if (task.getType() == HomeworkTaskType.VOCAB && tDto.vocabWordIds() != null) {
+          for (UUID wid : tDto.vocabWordIds()) {
+            task.addVocabWord(wid);
+          }
+        }
+      }
+
+      var saved = assignmentRepo.save(assignment); // cascades tasks & vocab words
+      result.add(AssignmentMapper.toDto(saved));
     }
 
-    var saved = assignmentRepo.save(assignment); // cascades tasks & vocab words
-    return AssignmentMapper.toDto(saved);
+    return result;
+  }
+
+  @Transactional
+  public List<AssignmentDto> reassignAssignment(UUID teacherId, UUID assignmentId, ReassignAssignmentDto dto) {
+    var source = assignmentRepo.findById(assignmentId)
+            .orElseThrow(() -> new NotFoundException("Assignment not found"));
+    if (!source.getTeacherId().equals(teacherId)) {
+      throw new ForbiddenException("You are not allowed to reassign this homework");
+    }
+
+    var targets = normalizeStudentIds(dto.studentIds());
+    if (targets.isEmpty()) {
+      throw new BadRequestException("At least one student is required");
+    }
+
+    var result = new ArrayList<AssignmentDto>();
+    for (UUID studentId : targets) {
+      if (studentId.equals(source.getStudentId())) {
+        continue;
+      }
+
+      var clone = cloneAssignmentForStudent(source, studentId);
+      var saved = assignmentRepo.save(clone);
+      result.add(AssignmentMapper.toDto(saved));
+    }
+    return result;
   }
 
   @Transactional(readOnly = true)
@@ -319,16 +368,74 @@ public class HomeworkService {
     return map;
   }
 
-  private HomeworkAssignment buildHomeworkAssignment(UUID teacherId, CreateAssignmentDto dto) {
+  private HomeworkAssignment buildHomeworkAssignment(UUID teacherId, UUID studentId, CreateAssignmentDto dto) {
     var assignment = new HomeworkAssignment();
     assignment.setTeacherId(teacherId);
-    assignment.setStudentId(dto.studentId());
+    assignment.setStudentId(studentId);
     assignment.setTitle(dto.title());
     assignment.setInstructions(dto.instructions());
     assignment.setDueAt(dto.dueAt());
     assignment.setLessonId(dto.lessonId());
     assignment.setIdempotencyKey(dto.idempotencyKey());
     return assignment;
+  }
+
+  private HomeworkAssignment cloneAssignmentForStudent(HomeworkAssignment source, UUID studentId) {
+    var clone = new HomeworkAssignment();
+    clone.setTeacherId(source.getTeacherId());
+    clone.setStudentId(studentId);
+    clone.setTitle(source.getTitle());
+    clone.setInstructions(source.getInstructions());
+    clone.setDueAt(source.getDueAt());
+    clone.setLessonId(source.getLessonId());
+    clone.setIdempotencyKey(null);
+
+    int ordinal = 1;
+    for (var sourceTask : source.getTasks()) {
+      var task = new HomeworkTask();
+      task.setOrdinal(Optional.ofNullable(sourceTask.getOrdinal()).orElse(ordinal++));
+      task.setType(sourceTask.getType());
+      task.setTitle(sourceTask.getTitle());
+      task.setInstructions(sourceTask.getInstructions());
+      task.setSourceKind(sourceTask.getSourceKind());
+      task.setContentRef(sourceTask.getContentRef() == null ? Map.of() : new LinkedHashMap<>(sourceTask.getContentRef()));
+      task.setStatus(HomeworkTaskStatus.NOT_STARTED);
+      task.setProgressPct(0);
+      task.setMeta(Map.of());
+      clone.addTask(task);
+
+      if (sourceTask.getVocabWords() != null) {
+        for (var row : sourceTask.getVocabWords()) {
+          task.addVocabWord(row.getWordId());
+        }
+      }
+    }
+
+    return clone;
+  }
+
+  private List<UUID> resolveTargetStudentIds(UUID studentId, List<UUID> studentIds) {
+    List<UUID> normalized = normalizeStudentIds(studentIds);
+    if (studentId != null && !normalized.contains(studentId)) {
+      normalized.add(studentId);
+    }
+    if (normalized.isEmpty()) {
+      throw new BadRequestException("At least one student is required");
+    }
+    return normalized;
+  }
+
+  private List<UUID> normalizeStudentIds(List<UUID> studentIds) {
+    if (studentIds == null || studentIds.isEmpty()) {
+      return new ArrayList<>();
+    }
+    var unique = new LinkedHashSet<UUID>();
+    for (UUID candidate : studentIds) {
+      if (candidate != null) {
+        unique.add(candidate);
+      }
+    }
+    return new ArrayList<>(unique);
   }
 
   private OffsetDateTime parseFromDateOrDateTime(String value, boolean endDay) {

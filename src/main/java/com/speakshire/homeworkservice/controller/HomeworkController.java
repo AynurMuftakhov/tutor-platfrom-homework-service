@@ -3,6 +3,7 @@ package com.speakshire.homeworkservice.controller;
 import com.speakshire.homeworkservice.dto.AssignmentDto;
 import com.speakshire.homeworkservice.dto.AssignmentListItemDto;
 import com.speakshire.homeworkservice.dto.CreateAssignmentDto;
+import com.speakshire.homeworkservice.dto.ReassignAssignmentDto;
 import com.speakshire.homeworkservice.service.HomeworkService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,6 +31,32 @@ public class HomeworkController {
   public AssignmentDto create(@RequestParam UUID teacherId,
                               @Valid @RequestBody CreateAssignmentDto body) {
     return homeworkService.createAssignment(teacherId, body);
+  }
+
+  @PostMapping("/bulk")
+  @ResponseStatus(HttpStatus.CREATED)
+  public List<AssignmentDto> createBulk(@RequestParam UUID teacherId,
+                                        @Valid @RequestBody CreateAssignmentDto body) {
+    var studentIds = new ArrayList<UUID>();
+    if (body.studentIds() != null) {
+      studentIds.addAll(body.studentIds());
+    }
+    if (body.studentId() != null) {
+      studentIds.add(body.studentId());
+    }
+    return homeworkService.createAssignmentsForStudents(
+            teacherId,
+            body,
+            studentIds
+    );
+  }
+
+  @PostMapping("/{assignmentId}/reassign")
+  @ResponseStatus(HttpStatus.CREATED)
+  public List<AssignmentDto> reassign(@PathVariable UUID assignmentId,
+                                      @RequestParam UUID teacherId,
+                                      @Valid @RequestBody ReassignAssignmentDto body) {
+    return homeworkService.reassignAssignment(teacherId, assignmentId, body);
   }
 
   // Extended student endpoint: preserves old behavior (full) when view param is absent
