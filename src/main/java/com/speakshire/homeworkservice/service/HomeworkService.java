@@ -63,7 +63,7 @@ public class HomeworkService {
         }
       }
 
-      var assignment = buildHomeworkAssignment(teacherId, studentId, dto);
+      var assignment = buildHomeworkAssignment(teacherId, studentId, dto, resolveDueAt(dto, studentId));
 
       int ordinal = 1;
       for (var tDto : dto.tasks()) {
@@ -114,7 +114,7 @@ public class HomeworkService {
         continue;
       }
 
-      var clone = cloneAssignmentForStudent(source, studentId);
+      var clone = cloneAssignmentForStudent(source, studentId, resolveReassignDueAt(source, dto, studentId));
       var saved = assignmentRepo.save(clone);
       result.add(AssignmentMapper.toDto(saved));
     }
@@ -368,25 +368,33 @@ public class HomeworkService {
     return map;
   }
 
-  private HomeworkAssignment buildHomeworkAssignment(UUID teacherId, UUID studentId, CreateAssignmentDto dto) {
+  private HomeworkAssignment buildHomeworkAssignment(UUID teacherId, UUID studentId, CreateAssignmentDto dto, OffsetDateTime dueAt) {
     var assignment = new HomeworkAssignment();
     assignment.setTeacherId(teacherId);
     assignment.setStudentId(studentId);
     assignment.setTitle(dto.title());
     assignment.setInstructions(dto.instructions());
-    assignment.setDueAt(dto.dueAt());
+    assignment.setDueAt(dueAt);
     assignment.setLessonId(dto.lessonId());
     assignment.setIdempotencyKey(dto.idempotencyKey());
     return assignment;
   }
 
-  private HomeworkAssignment cloneAssignmentForStudent(HomeworkAssignment source, UUID studentId) {
+  private OffsetDateTime resolveDueAt(CreateAssignmentDto dto, UUID studentId) {
+    if (dto.dueAtByStudentId() == null || dto.dueAtByStudentId().isEmpty()) {
+      return dto.dueAt();
+    }
+    OffsetDateTime specific = dto.dueAtByStudentId().get(studentId);
+    return specific != null ? specific : dto.dueAt();
+  }
+
+  private HomeworkAssignment cloneAssignmentForStudent(HomeworkAssignment source, UUID studentId, OffsetDateTime dueAt) {
     var clone = new HomeworkAssignment();
     clone.setTeacherId(source.getTeacherId());
     clone.setStudentId(studentId);
     clone.setTitle(source.getTitle());
     clone.setInstructions(source.getInstructions());
-    clone.setDueAt(source.getDueAt());
+    clone.setDueAt(dueAt);
     clone.setLessonId(source.getLessonId());
     clone.setIdempotencyKey(null);
 
@@ -412,6 +420,19 @@ public class HomeworkService {
     }
 
     return clone;
+  }
+
+  private OffsetDateTime resolveReassignDueAt(HomeworkAssignment source, ReassignAssignmentDto dto, UUID studentId) {
+    if (dto.dueAtByStudentId() != null && !dto.dueAtByStudentId().isEmpty()) {
+      OffsetDateTime specific = dto.dueAtByStudentId().get(studentId);
+      if (specific != null) {
+        return specific;
+      }
+    }
+    if (dto.dueAt() != null) {
+      return dto.dueAt();
+    }
+    return source.getDueAt();
   }
 
   private List<UUID> resolveTargetStudentIds(UUID studentId, List<UUID> studentIds) {
