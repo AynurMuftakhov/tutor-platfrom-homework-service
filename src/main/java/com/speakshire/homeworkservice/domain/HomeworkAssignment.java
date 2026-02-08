@@ -21,7 +21,8 @@ import java.util.UUID;
                 columnNames = {"teacher_id","student_id","idempotency_key"}),
         indexes = {
                 @Index(name = "idx_hw_assign_student", columnList = "student_id,due_at"),
-                @Index(name = "idx_hw_assign_teacher", columnList = "teacher_id,created_at")
+                @Index(name = "idx_hw_assign_teacher", columnList = "teacher_id,created_at"),
+                @Index(name = "idx_hw_assign_teacher_due", columnList = "teacher_id,due_at")
         }
 )
 public class HomeworkAssignment {

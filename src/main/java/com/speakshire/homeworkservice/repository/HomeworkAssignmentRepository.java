@@ -2,6 +2,7 @@ package com.speakshire.homeworkservice.repository;
 
 import com.speakshire.homeworkservice.domain.HomeworkAssignment;
 import com.speakshire.homeworkservice.repository.projection.AssignmentListItemProjection;
+import com.speakshire.homeworkservice.repository.projection.HomeworkDashboardItemProjection;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -108,4 +110,134 @@ public interface HomeworkAssignmentRepository extends JpaRepository<HomeworkAssi
                                                                         @Param("from") OffsetDateTime from,
                                                                         @Param("to") OffsetDateTime to,
                                                                         Pageable pageable);
+
+  @Query("""
+          select count(a)
+          from HomeworkAssignment a
+          where a.studentId = :studentId
+            and a.dueAt is not null
+            and a.dueAt >= :fromInclusive
+            and a.dueAt <= :toInclusive
+            and exists (
+              select 1 from HomeworkTask t
+              where t.assignment = a
+                and t.status <> com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED
+            )
+          """)
+  long countDashboardDueSoonForStudent(@Param("studentId") UUID studentId,
+                                       @Param("fromInclusive") OffsetDateTime fromInclusive,
+                                       @Param("toInclusive") OffsetDateTime toInclusive);
+
+  @Query("""
+          select count(a)
+          from HomeworkAssignment a
+          where a.studentId = :studentId
+            and a.dueAt is not null
+            and a.dueAt < :nowUtc
+            and exists (
+              select 1 from HomeworkTask t
+              where t.assignment = a
+                and t.status <> com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED
+            )
+          """)
+  long countDashboardOverdueForStudent(@Param("studentId") UUID studentId,
+                                       @Param("nowUtc") OffsetDateTime nowUtc);
+
+  @Query("""
+          select count(a)
+          from HomeworkAssignment a
+          where a.teacherId = :teacherId
+            and a.dueAt is not null
+            and a.dueAt >= :fromInclusive
+            and a.dueAt <= :toInclusive
+            and exists (
+              select 1 from HomeworkTask t
+              where t.assignment = a
+                and t.status <> com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED
+            )
+          """)
+  long countDashboardDueSoonForTutor(@Param("teacherId") UUID teacherId,
+                                     @Param("fromInclusive") OffsetDateTime fromInclusive,
+                                     @Param("toInclusive") OffsetDateTime toInclusive);
+
+  @Query("""
+          select count(a)
+          from HomeworkAssignment a
+          where a.teacherId = :teacherId
+            and a.dueAt is not null
+            and a.dueAt < :nowUtc
+            and exists (
+              select 1 from HomeworkTask t
+              where t.assignment = a
+                and t.status <> com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED
+            )
+          """)
+  long countDashboardOverdueForTutor(@Param("teacherId") UUID teacherId,
+                                     @Param("nowUtc") OffsetDateTime nowUtc);
+
+  @Query("""
+          select count(a)
+          from HomeworkAssignment a
+          where a.teacherId = :teacherId
+            and exists (
+              select 1 from HomeworkTask tAny
+              where tAny.assignment = a
+            )
+            and not exists (
+              select 1 from HomeworkTask tNotDone
+              where tNotDone.assignment = a
+                and tNotDone.status <> com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED
+            )
+          """)
+  long countDashboardToReviewForTutor(@Param("teacherId") UUID teacherId);
+
+  @Query("""
+          select a.id as id,
+                 a.title as title,
+                 a.dueAt as dueAt,
+                 a.lessonId as lessonId,
+                 a.studentId as studentId,
+                 a.teacherId as teacherId,
+                 count(t.id) as totalTasks,
+                 sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks,
+                 sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks
+          from HomeworkAssignment a
+          join a.tasks t
+          where a.studentId = :studentId
+            and a.dueAt is not null
+            and a.dueAt >= :fromInclusive
+            and a.dueAt <= :toInclusive
+          group by a.id
+          having sum(case when t.status <> com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) > 0
+          order by a.dueAt asc
+          """)
+  List<HomeworkDashboardItemProjection> findDashboardNextDueItemsForStudent(@Param("studentId") UUID studentId,
+                                                                             @Param("fromInclusive") OffsetDateTime fromInclusive,
+                                                                             @Param("toInclusive") OffsetDateTime toInclusive,
+                                                                             Pageable pageable);
+
+  @Query("""
+          select a.id as id,
+                 a.title as title,
+                 a.dueAt as dueAt,
+                 a.lessonId as lessonId,
+                 a.studentId as studentId,
+                 a.teacherId as teacherId,
+                 count(t.id) as totalTasks,
+                 sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) as completedTasks,
+                 sum(case when t.status = com.speakshire.homeworkservice.domain.HomeworkTaskStatus.IN_PROGRESS then 1 else 0 end) as inProgressTasks
+          from HomeworkAssignment a
+          join a.tasks t
+          where a.teacherId = :teacherId
+            and a.dueAt is not null
+            and a.dueAt >= :fromInclusive
+            and a.dueAt <= :toInclusive
+          group by a.id
+          having sum(case when t.status <> com.speakshire.homeworkservice.domain.HomeworkTaskStatus.COMPLETED then 1 else 0 end) > 0
+          order by a.dueAt asc
+          """)
+  List<HomeworkDashboardItemProjection> findDashboardNextDueItemsForTutor(@Param("teacherId") UUID teacherId,
+                                                                           @Param("fromInclusive") OffsetDateTime fromInclusive,
+                                                                           @Param("toInclusive") OffsetDateTime toInclusive,
+                                                                           Pageable pageable);
 }
